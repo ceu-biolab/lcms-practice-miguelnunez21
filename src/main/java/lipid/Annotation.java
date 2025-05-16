@@ -1,120 +1,188 @@
 package lipid;
 
-import java.util.Collections;
-import java.util.Objects;
-import java.util.Set;
-import java.util.TreeSet;
+import adduct.Adduct;
+import adduct.AdductList;
+
+import java.util.*;
 
 /**
- * Class to represent the annotation over a lipid
+ * Representa la anotación (feature) de un lípido.
  */
 public class Annotation {
 
     private final Lipid lipid;
-    private final double mz;
-    private final double intensity; // intensity of the most abundant peak in the groupedPeaks
-    private final double rtMin;
-    private final IoniationMode ionizationMode;
-    private String adduct; // !!TODO The adduct will be detected based on the groupedSignals
-    private final Set<Peak> groupedSignals;
-    private int score;
-    private int totalScoresApplied;
+    private final double mz;          // m/z del pico escogido como cabecera
+    private final double intensity;   // intensidad del pico más abundante del grupo
+    private final double rtMin;       // tiempo de retención (min)
+    private final Set<Peak> groupedSignals; // picos agrupados (isótopos/aductos)
+    private String adduct;            // aducto inferido ([M+H]+, [M+Na]+, …)
+    private double score = 0.0;
+    private int totalScoresApplied = 0;
+    private Ionization ionization;
 
 
-    /**
-     * @param lipid
-     * @param mz
-     * @param intensity
-     * @param retentionTime
-     * @param ionizationMode
-     */
-    public Annotation(Lipid lipid, double mz, double intensity, double retentionTime, IoniationMode ionizationMode) {
-        this(lipid, mz, intensity, retentionTime, ionizationMode, Collections.emptySet());
+    // --- constructores -----------------------------------------------------
+
+    public Annotation(Lipid lipid, double mz, double intensity, double retentionTime, Ionization ionization ) {
+        this(lipid, mz, intensity, retentionTime, Collections.emptySet(), ionization);
     }
 
-    /**
-     * @param lipid
-     * @param mz
-     * @param intensity
-     * @param retentionTime
-     * @param ionizationMode
-     * @param groupedSignals
-     */
-    public Annotation(Lipid lipid, double mz, double intensity, double retentionTime, IoniationMode ionizationMode, Set<Peak> groupedSignals) {
+    public Annotation(Lipid lipid, double mz, double intensity, double retentionTime, Set<Peak> groupedSignals, Ionization ionization) {
+
         this.lipid = lipid;
         this.mz = mz;
-        this.rtMin = retentionTime;
         this.intensity = intensity;
-        this.ionizationMode = ionizationMode;
-        // !!TODO This set should be sorted according to help the program to deisotope the signals plus detect the adduct
-        this.groupedSignals = new TreeSet<>(groupedSignals);
-        this.score = 0;
-        this.totalScoresApplied = 0;
+        this.rtMin = retentionTime;
+
+        // Se usa TreeSet para poder acceder al pico de menor m/z rápidamente
+        this.groupedSignals = orderSignals(groupedSignals);
+        this.ionization = ionization;
+        this.adduct = detectAdduct(this.groupedSignals);
+
     }
 
-    public Lipid getLipid() {
-        return lipid;
+    public Set<Peak> orderSignals(Set<Peak> signals) {
+        Set<Peak> orderedSignalss = new TreeSet<>(Comparator.comparingDouble(Peak::getMz));
+        orderedSignalss.addAll(signals);
+        return orderedSignalss;
     }
 
-    public double getMz() {
-        return mz;
+
+    public Lipid getLipid()      { return lipid;     }
+    public double getMz()        { return mz;        }
+    public double getIntensity() { return intensity; }
+    public double getRtMin()     { return rtMin;     }
+    public String getAdduct()    { return adduct;    }
+    public Set<Peak> getGroupedSignals() {
+        return Collections.unmodifiableSet(groupedSignals);
     }
 
-    public double getRtMin() {
-        return rtMin;
+    // --- score helpers -----------------------------------------------------
+
+    public double getScore() { return score; }
+
+    /** Añade un delta al score—se mantiene normalizado en [0,1]. */
+    public void addScore(double delta) {
+        this.score += delta;
+        this.totalScoresApplied++;
     }
 
-    public String getAdduct() {
-        return adduct;
+    public double getNormalizedScore() {
+        return totalScoresApplied == 0 ? 0.0 : score / totalScoresApplied;
     }
 
     public void setAdduct(String adduct) {
         this.adduct = adduct;
     }
 
-    public double getIntensity() {
-        return intensity;
-    }
-
-    public IoniationMode getIonizationMode() {
-        return ionizationMode;
-    }
-
-    public Set<Peak> getGroupedSignals() {
-        return Collections.unmodifiableSet(groupedSignals);
-    }
+    // ----------------------------------------------------------------------
 
 
-    public int getScore() {
-        return score;
+    public String detectAdduct(Set<Peak> groupedSignals) {
+        final int PPM_TOLERANCE=10;
+        double deltaTolerance=Adduct.calculateDeltaPPM(this.mz,PPM_TOLERANCE);
+
+
+
+        if (this.ionization.equals(Ionization.POSITIVE)) {
+            for (String adduct1 : AdductList.MAPMZPOSITIVEADDUCTS.keySet()) {
+                for (String adduct2 : AdductList.MAPMZPOSITIVEADDUCTS.keySet()) {
+                    for (Peak p1 : groupedSignals) {
+                        for (Peak p2 : groupedSignals) {
+                            if (p1.equals(p2)) continue;
+
+                            Double mono1 = Adduct.getMonoisotopicMassFromMZ(p1.getMz(), adduct1);
+                            Double mono2 = Adduct.getMonoisotopicMassFromMZ(p2.getMz(), adduct2);
+                            if (mono1 == null || mono2 == null) continue;
+
+                            int ppmError=Adduct.calculatePPMIncrement(mono1,mono2);
+                        if (this.lipid.getMonoisotropicmass()==0){
+                            if (ppmError <= PPM_TOLERANCE){
+                                if (Math.abs(p1.getMz() - this.mz) <= deltaTolerance) {
+                                    return adduct1;
+                                } else if (Math.abs(p2.getMz() - this.mz) <= deltaTolerance) {
+                                    return adduct2;
+                                }
+                            }
+                        }else {
+                                int ppmeErrorCheck1=Adduct.calculatePPMIncrement(mono1, this.lipid.getMonoisotropicmass());
+                                int ppmErrorCheck2=Adduct.calculatePPMIncrement(mono2, this.lipid.getMonoisotropicmass());
+
+                                    if (ppmeErrorCheck1 <= PPM_TOLERANCE && ppmErrorCheck2 <= PPM_TOLERANCE) {
+                                        if (Adduct.calculatePPMIncrement(p1.getMz(),this.mz) <= deltaTolerance) {
+                                            return adduct1;
+                                        } else if (Adduct.calculatePPMIncrement(p2.getMz(),this.mz) <= deltaTolerance) {
+                                            return adduct2;
+                                        }
+                                    }
+                                }
+
+                            }
+                    }
+                }
+            }
+
+        } else if (this.ionization.equals(Ionization.NEGATIVE)) {
+            for (String adduct1 : AdductList.MAPMZNEGATIVEADDUCTS.keySet()) {
+                for (String adduct2 : AdductList.MAPMZNEGATIVEADDUCTS.keySet()) {
+                    for (Peak p1 : groupedSignals) {
+                        for (Peak p2 : groupedSignals) {
+                            if (p1.equals(p2)) continue;
+
+                            Double mono1 = Adduct.getMonoisotopicMassFromMZ(p1.getMz(), adduct1);
+                            Double mono2 = Adduct.getMonoisotopicMassFromMZ(p2.getMz(), adduct2);
+                            if (mono1 == null || mono2 == null) continue;
+
+                            int ppmError = Adduct.calculatePPMIncrement(mono1, mono2);
+                            if (this.lipid.getMonoisotropicmass() == 0) {
+                                if (ppmError <= PPM_TOLERANCE) {
+                                    if (Math.abs(p1.getMz() - this.mz) <= deltaTolerance) {
+                                        return adduct1;
+                                    } else if (Math.abs(p2.getMz() - this.mz) <= deltaTolerance) {
+                                        return adduct2;
+                                    }
+                                }
+                            } else {
+                                int ppmeErrorCheck1 = Adduct.calculatePPMIncrement(mono1, this.lipid.getMonoisotropicmass());
+                                int ppmErrorCheck2 = Adduct.calculatePPMIncrement(mono2, this.lipid.getMonoisotropicmass());
+
+                                if (ppmeErrorCheck1 <= PPM_TOLERANCE && ppmErrorCheck2 <= PPM_TOLERANCE) {
+                                    if (Adduct.calculatePPMIncrement(p1.getMz(), this.mz) <= deltaTolerance) {
+                                        return adduct1;
+                                    } else if (Adduct.calculatePPMIncrement(p2.getMz(), this.mz) <= deltaTolerance) {
+                                        return adduct2;
+                                    }
+                                }
+                            }
+
+                        }
+                    }
+                }
+            }
+        }
+        return "unknown";
     }
 
-    public void setScore(int score) {
-        this.score = score;
+
+
+
+
+    public static void printScores(Annotation... annotations) {
+        for (int i = 0; i < annotations.length; i++) {
+            System.out.printf("Final score of annotation%d: %.1f%n", i + 1, annotations[i].getNormalizedScore());
+        }
+        System.out.println("---------------------------------------------------------------");
     }
 
-    // !CHECK Take into account that the score should be normalized between -1 and 1
-    public void addScore(int delta) {
-        this.score += delta;
-        this.totalScoresApplied++;
-    }
 
-    /**
-     * @return The normalized score between 0 and 1 that consists on the final number divided into the times that the rule
-     * has been applied.
-     */
-    public double getNormalizedScore() {
-        return (double) this.score / this.totalScoresApplied;
-    }
 
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
-        if (!(o instanceof Annotation)) return false;
-        Annotation that = (Annotation) o;
-        return Double.compare(that.mz, mz) == 0 &&
-                Double.compare(that.rtMin, rtMin) == 0 &&
-                Objects.equals(lipid, that.lipid);
+        if (!(o instanceof Annotation a)) return false;
+        return Double.compare(a.mz, mz) == 0 &&
+                Double.compare(a.rtMin, rtMin) == 0 &&
+                Objects.equals(lipid, a.lipid);
     }
 
     @Override
@@ -124,9 +192,9 @@ public class Annotation {
 
     @Override
     public String toString() {
-        return String.format("Annotation(%s, mz=%.4f, RT=%.2f, adduct=%s, intensity=%.1f, score=%d)",
-                lipid.getName(), mz, rtMin, adduct, intensity, score);
+        return String.format(
+                "Annotation(%s, mz=%.5f, RT=%.2f, adduct=%s, intensity=%.1f, score=%.3f)",
+                lipid.getName(), mz, rtMin, adduct, intensity, score
+        );
     }
-
-    // !!TODO Detect the adduct with an algorithm or with drools, up to the user.
 }

@@ -31,8 +31,7 @@ public class Peak {
     @Override
     public boolean equals(Object obj) {
         if (this == obj) return true;
-        if (!(obj instanceof Peak)) return false;
-        Peak other = (Peak) obj;
+        if (!(obj instanceof Peak other)) return false;
         return Double.compare(mz, other.mz) == 0;
     }
 }
