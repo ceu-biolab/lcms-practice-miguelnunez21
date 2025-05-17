@@ -28,10 +28,11 @@ public class Peak {
         return Double.hashCode(mz) * 31;
     }
 
-  /*  @Override
+    @Override
     public boolean equals(Object obj) {
         if (this == obj) return true;
-        if (!(obj instanceof Peak other)) return false;
+        if (!(obj instanceof Peak)) return false;
+        Peak other = (Peak) obj;
         return Double.compare(mz, other.mz) == 0;
-    }*/
+    }
 }

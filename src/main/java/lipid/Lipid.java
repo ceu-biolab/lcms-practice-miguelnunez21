@@ -72,11 +72,13 @@ public class Lipid {
         this.monoisotropicmass = monoisotropicmass;
     }
 
-   /* @Override
+
+    @Override
     public boolean equals(Object o) {
-        if (!(o instanceof Lipid lipid)) return false;
+        if (!(o instanceof Lipid)) return false;
+        Lipid lipid = (Lipid) o;
         return compoundId == lipid.compoundId;
-    }*/
+    }
 
     @Override
     public int hashCode() {
