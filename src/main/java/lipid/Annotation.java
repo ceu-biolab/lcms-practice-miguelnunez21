@@ -176,14 +176,14 @@ public class Annotation {
 
 
 
-    @Override
+   /* @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (!(o instanceof Annotation a)) return false;
         return Double.compare(a.mz, mz) == 0 &&
                 Double.compare(a.rtMin, rtMin) == 0 &&
                 Objects.equals(lipid, a.lipid);
-    }
+    }*/
 
     @Override
     public int hashCode() {
